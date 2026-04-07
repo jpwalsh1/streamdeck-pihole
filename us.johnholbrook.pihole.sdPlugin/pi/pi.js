@@ -9,7 +9,6 @@ function send(data){
 
 // write to the log
 function log(message){
-    alert("logging!")
     send({
         "event": "logMessage",
         "payload": {
@@ -29,7 +28,7 @@ function connectElgatoStreamDeckSocket(inPort, inPropertyInspectorUUID, inRegist
     }
 
     websocket.onmessage = function(evt){
-        jsonObj = json.parse(evt.data);
+        jsonObj = JSON.parse(evt.data);
         let event = jsonObj.event;
     }
 

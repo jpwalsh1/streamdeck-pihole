@@ -25,7 +25,7 @@ function pihole_connect(settings, handler){
     xhr.open("POST", req_addr);
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.onload = function(){
-        data = JSON.parse(xhr.response);
+        let data = JSON.parse(xhr.response);
         handler(data);
     }
     xhr.onerror = xhr.ontimeout = function(){
@@ -53,7 +53,7 @@ function getBlockingStatus(settings, session, handler){
     xhr.open("GET", req_addr);
     xhr.setRequestHeader("X-FTL-SID", session.sid);
     xhr.onload = function(){
-        data = JSON.parse(xhr.response);
+        let data = JSON.parse(xhr.response);
         handler(data);
     }
     xhr.onerror = function(){
@@ -81,7 +81,7 @@ function getStatsSummary(settings, session, handler){
     xhr.open("GET", req_addr);
     xhr.setRequestHeader("X-FTL-SID", session.sid);
     xhr.onload = function(){
-        data = JSON.parse(xhr.response);
+        let data = JSON.parse(xhr.response);
         handler(data);
     }
     xhr.onerror = function(){
@@ -184,25 +184,30 @@ function pollPihole(context){
 // process the pi-hole stats to make them more human-readable,
 // then cast to string
 function process_stat(stats, type){
-    switch (type){
-        case "domains_being_blocked":
-            return stats.gravity.domains_being_blocked.toLocaleString();
-        case "dns_queries_today":
-            return stats.queries.total.toLocaleString();
-        case "ads_blocked_today":
-            return stats.queries.blocked.toLocaleString();
-        case "ads_percentage_today":
-            return stats.queries.percent_blocked.toFixed(2) + "%";
-        case "unique_domains":
-            return stats.queries.unique_domains.toLocaleString();
-        case "queries_forwarded":
-            return stats.queries.forwarded.toLocaleString();
-        case "queries_cached":
-            return stats.queries.cached.toLocaleString();
-        case "clients_ever_seen":
-            return stats.clients.total.toLocaleString();
-        case "unique_clients":
-            return stats.clients.active.toLocaleString();
+    try {
+        switch (type){
+            case "domains_being_blocked":
+                return stats.gravity.domains_being_blocked.toLocaleString();
+            case "dns_queries_today":
+                return stats.queries.total.toLocaleString();
+            case "ads_blocked_today":
+                return stats.queries.blocked.toLocaleString();
+            case "ads_percentage_today":
+                return (stats.queries.percent_blocked ?? 0).toFixed(2) + "%";
+            case "unique_domains":
+                return stats.queries.unique_domains.toLocaleString();
+            case "queries_forwarded":
+                return stats.queries.forwarded.toLocaleString();
+            case "queries_cached":
+                return stats.queries.cached.toLocaleString();
+            case "clients_ever_seen":
+                return stats.clients.total.toLocaleString();
+            case "unique_clients":
+                return stats.clients.active.toLocaleString();
+        }
+    } catch(e) {
+        log(`process_stat error for "${type}": ${e.message}. Response: ${JSON.stringify(stats)}`);
+        return "?";
     }
 }
 
@@ -216,19 +221,6 @@ function setState(context, state){
         }
     };
     websocket.send(JSON.stringify(json));
-}
-
-// update the p-h address, API key, or disable time
-function updateSettings(payload){
-    if ("disable_time" in payload){
-        time = payload.disable_time;
-    }
-    if ("ph_key" in payload){
-        ph_key = payload.ph_key;
-    }
-    if ("ph_addr" in payload){
-        ph_addr = payload.ph_addr;
-    }
 }
 
 // write settings
@@ -269,18 +261,17 @@ function writeSettings(context, action, settings){
             log(response);
         } else{
             instances[context].session = response.session;
+            instances[context].sessionCreatedAt = Math.floor(Date.now() / 1000);
             instances[context].poller = setInterval(() => {
                 const timeNow = Math.floor(Date.now() / 1000);
-                const sessionExpired = "lastUpdateTime" in instances[context] &&
-                    (timeNow - instances[context].lastUpdateTime) > instances[context].session.validity;
-                instances[context].lastUpdateTime = timeNow;
+                const sessionExpired = (timeNow - instances[context].sessionCreatedAt) > instances[context].session.validity;
                 if (sessionExpired){
                     clearInterval(instances[context].poller);
                     pihole_connect(instances[context].settings, onReady);
                 } else{
                     pollPihole(context);
                 }
-            }, Math.ceil(response.took) * 1000);
+            }, 1000);
         }
         // log(JSON.stringify(instances));
     }
@@ -301,7 +292,9 @@ function connectElgatoStreamDeckSocket(inPort, inPluginUUID, inRegisterEvent, in
     };
     websocket.onclose = function(){
         // log("exiting now");
-        pihole_end(instances[context]);
+        for (const instance of Object.values(instances)){
+            pihole_end(instance);
+        }
     };
 
     // message handler
